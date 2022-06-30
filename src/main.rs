@@ -1,54 +1,32 @@
 #[macro_use]
 extern crate ini;
-extern crate glob;
 
-use chrono::{Utc};
-use glob::glob;
-use std::fs;
-use std::collections::HashMap;
+use chrono::Utc;
+use std::fs::File;
+use std::path::Path;
 
-fn main() {
-    // Get some program variables from the config file
+fn main() -> std::io::Result<()> {
     let map = ini!("/etc/locutus/settings.ini");
     let token = map["default"]["token"].clone().unwrap();
-    let logdir = map["default"]["logdirectory"].clone().unwrap();
-    // debugging: print the variables
+    let backupdir = map["borg"]["backupdir"].clone().unwrap();
+    let backuprepo = map["borg"]["backuprepo"].clone().unwrap();
+    let starttime = map["borg"]["starttime"].clone().unwrap();
     println!("Token: {}", token);
-    println!("Log Directory: {}", logdir);
-
-    // get today's log files so we can send them off to the API
-    let date = Utc::now().format("%Y%m%d").to_string();
-    let source_files = format!("{}/{}-*", logdir, date);
-    // debugging: print the variables
-    println!("Log Files: {}", source_files);
-
-    // grab the correct files from the log dir and iterate through them
-    for entry in glob(&source_files).expect("Failed to read glob pattern") {
-        let file_name = format!("{}", entry.unwrap().display());
-        let file_content = fs::read_to_string(&file_name).expect("Something went wrong reading the file");
-        let json: serde_json::Value = serde_json::from_str(&file_content)
-        .expect("JSON does not have correct format.");
-        
-        let token = &token.to_string();
-        let duration = &json["archive"]["duration"].to_string();
-        let files = &json["archive"]["stats"]["nfiles"].to_string();
-        let compressed = &json["archive"]["stats"]["compressed_size"].to_string();
-        let original = &json["archive"]["stats"]["original_size"].to_string();
-        let repository = &json["repository"]["id"].to_string();
-        let date = &date.to_string();
-
-        // add the variables to a hasmap which we can send to the API
-        let mut map = HashMap::new();
-        map.insert("token", token);
-        map.insert("duration", duration);
-        map.insert("files", files);
-        map.insert("compressed_size", compressed);
-        map.insert("original_size", original);
-        map.insert("repository_id", repository);
-        map.insert("date", &date);
-        // debugging: print the variables
-        println!("{:?}", map)
+    println!("Backup Directory: {}", backupdir);
+    println!("Backup Repository: {}", backuprepo);
+    println!("Backup Start time: {}", starttime);
+    let pattern = format!("{}-", Utc::now().format("%Y%m%d"));
+    for entry in std::fs::read_dir("/var/log/borg")? {
+        let entry = entry?;
+        let file_name = entry.file_name();
+        let file_name: &Path = file_name.as_ref();
+        if !file_name.starts_with(&pattern) {
+        let json: serde_json::Value = serde_json::from_reader(File::open(entry.path())?)?;
+        println!("Duration: {}", json["archive"]["duration"]);
+        println!("Files: {}", json["archive"]["stats"]["nfiles"]);
+        println!("Compressed Size: {}",json["archive"]["stats"]["compressed_size"]);
+        println!("Original Size: {}",json["archive"]["stats"]["original_size"]);
+        }
     }
+    Ok(())
 }
-// SEND TO:
-// https://borgreporting/<TOKEN>/post
